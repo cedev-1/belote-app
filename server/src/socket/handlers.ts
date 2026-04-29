@@ -1,6 +1,6 @@
 import type { Server, Socket } from 'socket.io'
 import { supabase } from '../lib/supabase'
-import { initialDeal, completeDeal, dealFromDeck } from '../game/deck'
+import { completeDeal, dealFromDeck, shuffleDeck, createDeck } from '../game/deck'
 import type { Card, Suit, DealOrder } from '../game/deck'
 import { getPlayableIndices, getTrickWinner, getTrickPoints } from '../game/rules'
 import type { TrickCard } from '../game/rules'
@@ -11,7 +11,7 @@ interface OnlinePlayer {
   elo: number
 }
 
-type Phase = 'waiting' | 'bidding' | 'playing' | 'cutting'
+type Phase = 'waiting' | 'bidding' | 'playing' | 'cutting' | 'dealing'
 
 interface PlayPhase {
   currentPlayerIndex: number
@@ -47,6 +47,9 @@ interface GameState {
   persistedDeck: Card[]
   currentRoundCards: Card[]
   dealOrder: DealOrder
+  // Belote/Rebelote tracking
+  belotePlayerId: string | null
+  beloteCount: 0 | 1 | 2
 }
 
 // socketId -> userId
@@ -121,7 +124,10 @@ function phasePayload(state: GameState) {
     phase: state.phase,
     currentPlayer:
       state.phase === 'bidding' ? state.playerOrder[state.biddingTurnIndex] :
-      state.phase === 'cutting' ? state.playerOrder[3] : null,
+      state.phase === 'playing' ? (state.play ? state.playerOrder[state.play.currentPlayerIndex] : null) :
+      state.phase === 'cutting' ? state.playerOrder[state.playerOrder.length - 1] :
+      state.phase === 'dealing' ? state.playerOrder[0] :
+      null,
     trump: state.trump,
     trumpCallerId: state.trumpCallerId,
     team1Score: state.team1Score,
@@ -178,6 +184,8 @@ function emptyGameState(
     persistedDeck: existingScores?.persistedDeck ?? [],
     currentRoundCards: [],
     dealOrder: '3-2',
+    belotePlayerId: null,
+    beloteCount: 0,
   }
 }
 
@@ -199,26 +207,16 @@ export function registerSocketHandlers(io: Server) {
     next()
   })
 
-  io.on('connection', async (socket: Socket) => {
+  io.on('connection', (socket: Socket) => {
     const userId = socket.data.userId as string
 
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('id, display_name, elo')
-      .eq('id', userId)
-      .single()
+    // Register all handlers synchronously so events emitted immediately on connection
+    // (e.g. game:join buffered by Socket.IO during handshake) are not dropped.
+    socket.on('games:refresh', () => {
+      io.emit('games:updated')
+    })
 
-    if (profile) {
-      socketToUser.set(socket.id, userId)
-      const sockets = userToSockets.get(userId) ?? new Set()
-      sockets.add(socket.id)
-      userToSockets.set(userId, sockets)
-      const existing = onlineUsers.get(userId)
-      onlineUsers.set(userId, { player: profile, count: (existing?.count ?? 0) + 1 })
-      broadcastOnlinePlayers(io)
-    }
-
-    socket.on('game:join', (gameId: string) => {
+    socket.on('game:join', async (gameId: string) => {
       socket.join(`game:${gameId}`)
       io.to(`game:${gameId}`).emit('game:lobby_updated')
       const state = gameStates.get(gameId)
@@ -227,13 +225,52 @@ export function registerSocketHandlers(io: Server) {
         const cards = state.hands.get(userId)
         if (cards) socket.emit('game:hand', { playerId: userId, cards })
       }
-      const teamNames = gameTeamNames.get(gameId) ?? { 1: 'Équipe 1', 2: 'Équipe 2' }
-      socket.emit('game:team_names', teamNames)
+      let teamNames = gameTeamNames.get(gameId)
+      if (!teamNames) {
+        const { data: gameRow } = await supabase.from('games').select('team1_name, team2_name').eq('id', gameId).single()
+        teamNames = { 1: gameRow?.team1_name ?? 'Équipe 1', 2: gameRow?.team2_name ?? 'Équipe 2' }
+        gameTeamNames.set(gameId, teamNames)
+      }
+      socket.emit('game:team_names', { gameId, names: teamNames })
     })
 
     socket.on('game:leave', (gameId: string) => {
       socket.leave(`game:${gameId}`)
       io.to(`game:${gameId}`).emit('game:lobby_updated')
+      io.emit('games:updated')
+    })
+
+    socket.on('game:leave_seat', async (gameId: string) => {
+      await supabase.from('game_players').delete().eq('game_id', gameId).eq('player_id', userId)
+      const { data: game } = await supabase.from('games').select('created_by').eq('id', gameId).single()
+      if (game?.created_by === userId) {
+        await supabase.from('games').delete().eq('id', gameId)
+      }
+      socket.leave(`game:${gameId}`)
+      io.to(`game:${gameId}`).emit('game:lobby_updated')
+      io.emit('games:updated')
+    })
+
+    socket.on('game:swap_seats', async (gameId: string, targetPosition: 1 | 2 | 3 | 4) => {
+      const { data: entries } = await supabase
+        .from('game_players')
+        .select('player_id, position, elo_before')
+        .eq('game_id', gameId)
+        .or(`player_id.eq.${userId},position.eq.${targetPosition}`)
+      if (!entries || entries.length < 2) return
+      const myEntry = entries.find(e => e.player_id === userId)
+      const targetEntry = entries.find(e => e.position === targetPosition && e.player_id !== userId)
+      if (!myEntry || !targetEntry) return
+      const myNewTeam: 1 | 2 = ([1, 3] as number[]).includes(targetPosition) ? 1 : 2
+      const theirNewTeam: 1 | 2 = ([1, 3] as number[]).includes(myEntry.position) ? 1 : 2
+      await supabase.from('game_players').delete().eq('game_id', gameId).eq('player_id', userId)
+      await supabase.from('game_players').delete().eq('game_id', gameId).eq('player_id', targetEntry.player_id)
+      await supabase.from('game_players').insert([
+        { game_id: gameId, player_id: userId, position: targetPosition, team: myNewTeam, elo_before: myEntry.elo_before },
+        { game_id: gameId, player_id: targetEntry.player_id, position: myEntry.position, team: theirNewTeam, elo_before: targetEntry.elo_before },
+      ])
+      io.to(`game:${gameId}`).emit('game:lobby_updated')
+      io.emit('games:updated')
     })
 
     socket.on('game:join_seat', async (gameId: string, position: 1 | 2 | 3 | 4) => {
@@ -252,12 +289,15 @@ export function registerSocketHandlers(io: Server) {
       const { error } = await supabase.from('game_players').insert({
         game_id: gameId, player_id: userId, team, position, elo_before: profile?.elo ?? 1000,
       })
-      if (!error) io.to(`game:${gameId}`).emit('game:lobby_updated')
+      if (!error) {
+        io.to(`game:${gameId}`).emit('game:lobby_updated')
+        io.emit('games:updated')
+      }
     })
 
     socket.on('game:set_team_names', (gameId: string, names: { 1: string; 2: string }) => {
       gameTeamNames.set(gameId, names)
-      io.to(`game:${gameId}`).emit('game:team_names', names)
+      io.emit('game:team_names', { gameId, names })
     })
 
     socket.on('game:start', async (gameId: string) => {
@@ -268,48 +308,47 @@ export function registerSocketHandlers(io: Server) {
         .single()
 
       if (game) {
-        const ordered = [...game.game_players].sort((a, b) => a.position - b.position)
+        const baseOrdered = [...game.game_players].sort((a, b) => a.position - b.position)
+        const baseIds = baseOrdered.map(p => p.player_id)
+        const creatorIdx = baseIds.indexOf(game.created_by)
+
+        // Rotate so creator is at index 3 (cutter), person after creator at index 0 (first dealer)
+        const rotatedIds = [
+          ...baseIds.slice(creatorIdx + 1),
+          ...baseIds.slice(0, creatorIdx + 1),
+        ]
         const playerTeams: Record<string, 1 | 2> = {}
         for (const p of game.game_players) playerTeams[p.player_id] = p.team
 
-        gameStates.set(gameId, emptyGameState(ordered, playerTeams, game.created_by))
+        const ordered = rotatedIds.map((id, i) => ({ player_id: id, position: i + 1, team: playerTeams[id] as 1 | 2 }))
+        const state = emptyGameState(ordered, playerTeams, game.created_by)
+        state.persistedDeck = shuffleDeck(createDeck())
+        state.phase = 'cutting'
+
+        gameStates.set(gameId, state)
       }
 
       const teamNames = gameTeamNames.get(gameId) ?? { 1: 'Équipe 1', 2: 'Équipe 2' }
       io.to(`game:${gameId}`).emit('game:started', teamNames)
+      io.emit('games:updated')
     })
 
-    socket.on('game:deal', async (gameId: string, requestedOrder?: DealOrder) => {
-      let state = gameStates.get(gameId)
-
-      if (!state) {
-        const { data: game } = await supabase
-          .from('games')
-          .select('created_by, game_players(player_id, position, team)')
-          .eq('id', gameId)
-          .single()
-
-        if (!game) return
-
-        const ordered = [...game.game_players].sort((a, b) => a.position - b.position)
-        const playerTeams: Record<string, 1 | 2> = {}
-        for (const p of game.game_players) playerTeams[p.player_id] = p.team
-
-        state = emptyGameState(ordered, playerTeams, game.created_by)
-        gameStates.set(gameId, state)
-      }
-
-      if (state.createdBy !== userId) return
+    socket.on('game:deal', (gameId: string, requestedOrder?: DealOrder) => {
+      const state = gameStates.get(gameId)
+      if (!state || state.phase !== 'dealing') return
+      if (state.playerOrder[0] !== userId) return
 
       if (requestedOrder === '3-2' || requestedOrder === '2-3') {
         state.dealOrder = requestedOrder
       }
 
-      // Première donne : mélange unique
-      const { hands, retourne, remainingDeck } = initialDeal(state.playerOrder, state.dealOrder)
+      const { hands, retourne, remainingDeck } = dealFromDeck(state.persistedDeck, state.playerOrder, state.dealOrder)
       state.hands = hands
       state.retourne = retourne
       state.remainingDeck = remainingDeck
+      state.currentRoundCards = []
+      state.belotePlayerId = null
+      state.beloteCount = 0
 
       sendHands(io, state.playerOrder, hands, userToSockets, state.dealOrder)
       for (const playerId of state.playerOrder) {
@@ -420,29 +459,17 @@ export function registerSocketHandlers(io: Server) {
     socket.on('game:cut_deck', (gameId: string, cutPoint: number) => {
       const state = gameStates.get(gameId)
       if (!state || state.phase !== 'cutting') return
-      // Seul le coupeur (playerOrder[3] = l'ancien donneur) peut couper
-      if (state.playerOrder[3] !== userId) return
+      if (state.playerOrder[state.playerOrder.length - 1] !== userId) return
 
       const deck = state.persistedDeck
       const cut = Math.max(3, Math.min(Math.round(cutPoint), deck.length - 3))
       state.persistedDeck = [...deck.slice(cut), ...deck.slice(0, cut)]
 
-      const { hands, retourne, remainingDeck } = dealFromDeck(state.persistedDeck, state.playerOrder, state.dealOrder)
-      state.hands = hands
-      state.retourne = retourne
-      state.remainingDeck = remainingDeck
-      state.currentRoundCards = []
-
-      sendHands(io, state.playerOrder, hands, userToSockets, state.dealOrder)
-      for (const playerId of state.playerOrder) {
-        broadcastToGame(io, state, 'game:card_count', { playerId, count: 5 })
-      }
-      broadcastToGame(io, state, 'game:retourne', retourne)
-
-      startBidding(io, gameId, state)
+      state.phase = 'dealing'
+      broadcastPhase(io, gameId, state)
     })
 
-    socket.on('game:play_card', (gameId: string, cardIndex: number) => {
+    socket.on('game:play_card', (gameId: string, cardIndex: number, announceBelote?: boolean) => {
       const state = gameStates.get(gameId)
       if (!state || state.phase !== 'playing' || !state.play || !state.trump) return
       if (state.playerOrder[state.play.currentPlayerIndex] !== userId) return
@@ -455,6 +482,25 @@ export function registerSocketHandlers(io: Server) {
       if (!playable.includes(cardIndex)) return
 
       const card = hand[cardIndex]
+
+      // Belote/Rebelote announcement (before modifying hand)
+      if (announceBelote && state.trump) {
+        const trump = state.trump
+        if (card.suit === trump && (card.value === 'K' || card.value === 'Q')) {
+          const hasOther = card.value === 'K'
+            ? hand.some(c => c.suit === trump && c.value === 'Q')
+            : hand.some(c => c.suit === trump && c.value === 'K')
+          if (state.beloteCount === 0 && hasOther) {
+            state.belotePlayerId = userId
+            state.beloteCount = 1
+            broadcastToGame(io, state, 'game:belote_announced', { playerId: userId, type: 'belote' })
+          } else if (state.beloteCount === 1 && state.belotePlayerId === userId) {
+            state.beloteCount = 2
+            broadcastToGame(io, state, 'game:belote_announced', { playerId: userId, type: 'rebelote' })
+          }
+        }
+      }
+
       const newHand = hand.filter((_, i) => i !== cardIndex)
       state.hands.set(userId, newHand)
       state.play.trick.push({ playerId: userId, card })
@@ -527,6 +573,13 @@ export function registerSocketHandlers(io: Server) {
             }
           }
 
+          // Belote bonus — 20pts toujours attribués à l'équipe qui a belote/rebelote
+          const beloteTeam = state.beloteCount === 2 && state.belotePlayerId
+            ? state.playerTeams[state.belotePlayerId]
+            : null
+          if (beloteTeam === 1) roundTeam1Points += 20
+          else if (beloteTeam === 2) roundTeam2Points += 20
+
           state.team1Score += roundTeam1Points
           state.team2Score += roundTeam2Points
 
@@ -547,6 +600,7 @@ export function registerSocketHandlers(io: Server) {
             chute,
             litige,
             pendingLitigePoints: state.litigePoints,
+            beloteTeam,
           })
 
           state.play = null
@@ -564,7 +618,7 @@ export function registerSocketHandlers(io: Server) {
             return
           }
 
-          // Phase coupe : le coupeur (playerOrder[3] = ancien donneur) coupe
+          // Phase coupe : le coupeur (playerOrder[last] = ancien donneur) coupe
           state.phase = 'cutting'
           state.trump = null
           state.trumpCallerId = null
@@ -606,5 +660,24 @@ export function registerSocketHandlers(io: Server) {
       }
       broadcastOnlinePlayers(io)
     })
+
+    // Profile fetch runs after handlers are registered (non-blocking for incoming events)
+    supabase
+      .from('profiles')
+      .select('id, display_name, elo')
+      .eq('id', userId)
+      .single()
+      .then(({ data: profile }) => {
+        if (profile) {
+          socketToUser.set(socket.id, userId)
+          const sockets = userToSockets.get(userId) ?? new Set()
+          sockets.add(socket.id)
+          userToSockets.set(userId, sockets)
+          const existing = onlineUsers.get(userId)
+          onlineUsers.set(userId, { player: profile, count: (existing?.count ?? 0) + 1 })
+          broadcastOnlinePlayers(io)
+          socket.emit('players:online', Array.from(onlineUsers.values()).map((e) => e.player))
+        }
+      })
   })
 }

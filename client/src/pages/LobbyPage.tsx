@@ -25,6 +25,8 @@ interface LobbyGame {
   id: string
   status: string
   created_by: string
+  team1_name: string
+  team2_name: string
   game_players: GamePlayer[]
 }
 
@@ -39,7 +41,6 @@ export default function LobbyPage() {
   const [error, setError] = useState<string | null>(null)
   const [teamNames, setTeamNames] = useState<{ 1: string; 2: string }>({ 1: 'Équipe 1', 2: 'Équipe 2' })
   const [teamNameEdits, setTeamNameEdits] = useState<{ 1: string; 2: string }>({ 1: 'Équipe 1', 2: 'Équipe 2' })
-  const editsClean = useRef(true)
   const teamNamesRef = useRef(teamNames)
   teamNamesRef.current = teamNames
 
@@ -47,7 +48,7 @@ export default function LobbyPage() {
     if (!id) return
     const { data } = await supabase
       .from('games')
-      .select('id, status, created_by, game_players(player_id, team, position, elo_before, profiles(id, display_name, elo, avatar_url))')
+      .select('id, status, created_by, team1_name, team2_name, game_players(player_id, team, position, elo_before, profiles(id, display_name, elo, avatar_url))')
       .eq('id', id)
       .single()
     if (data) {
@@ -55,6 +56,12 @@ export default function LobbyPage() {
       if (anyData.status === 'in_progress') {
         navigate(`/game/${id}/play`, { state: { teamNames: teamNamesRef.current } })
         return
+      }
+      if (!game) {
+        const names = { 1: anyData.team1_name ?? 'Équipe 1', 2: anyData.team2_name ?? 'Équipe 2' }
+        teamNamesRef.current = names
+        setTeamNames(names)
+        setTeamNameEdits(names)
       }
       setGame(anyData as LobbyGame)
     }
@@ -80,33 +87,78 @@ export default function LobbyPage() {
 
   useEffect(() => {
     if (!socket || !id) return
-    socket.on('game:lobby_updated', () => { fetchGame() })
+    const rejoin = () => socket.emit('game:join', id)
+    socket.on('connect', rejoin)
+    socket.on('game:lobby_updated', () => { fetchGameRef.current() })
+    socket.on('games:updated', () => { fetchGameRef.current() })
     socket.on('game:started', (names?: { 1: string; 2: string }) => {
       navigate(`/game/${id}/play`, { state: { teamNames: names } })
     })
-    socket.on('game:team_names', (names: { 1: string; 2: string }) => {
+    socket.on('game:team_names', ({ gameId: gid, names }: { gameId: string; names: { 1: string; 2: string } }) => {
+      if (gid !== id) return
       setTeamNames(names)
-      if (editsClean.current) setTeamNameEdits(names)
+      setTeamNameEdits(names)
     })
     socket.emit('game:join', id)
     return () => {
+      socket.off('connect', rejoin)
       socket.off('game:lobby_updated')
+      socket.off('games:updated')
       socket.off('game:started')
       socket.off('game:team_names')
       socket.emit('game:leave', id)
     }
-  }, [socket, id, fetchGame, navigate])
+  }, [socket, id, navigate])
 
-  const joinSeat = (position: 1 | 2 | 3 | 4) => {
-    if (!socket || !id) return
-    socket.emit('game:join_seat', id, position)
+  const swapSeat = (position: 1 | 2 | 3 | 4) => {
+    if (!socket || !id || !user || !game) return
+    socket.emit('game:swap_seats', id, position)
+    const myEntry = game.game_players.find(p => p.player_id === user.id)
+    const targetEntry = game.game_players.find(p => p.position === position)
+    if (!myEntry || !targetEntry) return
+    const myOldPos = myEntry.position
+    const myNewTeam: 1 | 2 = ([1, 3] as number[]).includes(position) ? 1 : 2
+    const theirNewTeam: 1 | 2 = ([1, 3] as number[]).includes(myOldPos) ? 1 : 2
+    setGame(prev => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        game_players: prev.game_players.map(p => {
+          if (p.player_id === user.id) return { ...p, position, team: myNewTeam }
+          if (p.player_id === targetEntry.player_id) return { ...p, position: myOldPos, team: theirNewTeam }
+          return p
+        })
+      }
+    })
   }
 
-  const saveTeamNames = () => {
-    if (!id) return
-    setTeamNames(teamNameEdits)
-    editsClean.current = true
-    socket?.emit('game:set_team_names', id, teamNameEdits)
+  const joinSeat = (position: 1 | 2 | 3 | 4) => {
+    if (!socket || !id || !user || !game) return
+    socket.emit('game:join_seat', id, position)
+
+    const team: 1 | 2 = ([1, 3] as number[]).includes(position) ? 1 : 2
+    const existingEntry = game.game_players.find(p => p.player_id === user.id)
+    const profile: LobbyPlayer = existingEntry?.profiles ?? {
+      id: user.id,
+      display_name: user.email?.split('@')[0] ?? 'Moi',
+      elo: 1000,
+      avatar_url: null,
+    }
+    setGame(prev => {
+      if (!prev) return prev
+      const filtered = prev.game_players.filter(p => p.player_id !== user.id)
+      return { ...prev, game_players: [...filtered, { player_id: user.id, team, position, elo_before: profile.elo, profiles: profile }] }
+    })
+  }
+
+  const commitTeamName = (team: 1 | 2, value: string) => {
+    const trimmed = value.trim() || `Équipe ${team}`
+    const updated = { ...teamNameEdits, [team]: trimmed }
+    teamNamesRef.current = updated
+    setTeamNames(updated)
+    setTeamNameEdits(updated)
+    supabase.from('games').update(team === 1 ? { team1_name: trimmed } : { team2_name: trimmed }).eq('id', id!).then()
+    socket?.emit('game:set_team_names', id, updated)
   }
 
   const startGame = async () => {
@@ -119,17 +171,14 @@ export default function LobbyPage() {
       setStarting(false)
       return
     }
-    socket?.emit('game:set_team_names', id, teamNameEdits)
+    socket?.emit('game:set_team_names', id, teamNamesRef.current)
     socket?.emit('game:start', id)
-    navigate(`/game/${id}/play`, { state: { teamNames: teamNameEdits } })
+    // navigate happens via game:started event (fired after server state is ready)
   }
 
-  const leaveGame = async () => {
-    if (!id || !user) return
-    await supabase.from('game_players').delete().eq('game_id', id).eq('player_id', user.id)
-    if (game?.created_by === user.id) {
-      await supabase.from('games').delete().eq('id', id)
-    }
+  const leaveGame = () => {
+    if (!id || !socket) return
+    socket.emit('game:leave_seat', id)
     navigate('/')
   }
 
@@ -157,7 +206,8 @@ export default function LobbyPage() {
   const isFull = playerCount === 4
   const myPlayer = game.game_players.find((gp) => gp.player_id === user?.id)
   const isInGame = !!myPlayer
-  const teamNamesChanged = teamNameEdits[1] !== teamNames[1] || teamNameEdits[2] !== teamNames[2]
+  const captainPosition: Record<1 | 2, 1 | 2 | 3 | 4> = { 1: 1, 2: 2 }
+  const canEditTeam = (team: 1 | 2) => isCreator || myPlayer?.position === captainPosition[team]
 
   return (
     <div className="salon-root" style={{ minHeight: '100vh' }}>
@@ -190,14 +240,13 @@ export default function LobbyPage() {
               return (
                 <section key={team} className="salon-card-panel">
                   <div className="salon-panel-head">
-                    {isCreator ? (
+                    {canEditTeam(team) ? (
                       <input
                         className="salon-team-name-input"
                         value={teamNameEdits[team]}
-                        onChange={(e) => {
-                          editsClean.current = false
-                          setTeamNameEdits((prev) => ({ ...prev, [team]: e.target.value }))
-                        }}
+                        onChange={(e) => setTeamNameEdits((prev) => ({ ...prev, [team]: e.target.value }))}
+                        onBlur={(e) => commitTeamName(team, e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
                         placeholder={`Équipe ${team}`}
                         maxLength={20}
                       />
@@ -215,13 +264,16 @@ export default function LobbyPage() {
                     {positions.map((pos) => {
                       const occupant = playersByPosition[pos]
                       const canJoin = !occupant && (isInGame || !isFull)
+                      const canSwap = !!occupant && occupant.player_id !== user?.id && isInGame && isFull
                       return (
                         <LobbySeat
                           key={pos}
                           player={occupant?.profiles ?? null}
                           isCurrentUser={occupant?.player_id === user?.id}
                           canJoin={canJoin}
+                          canSwap={canSwap}
                           onJoin={() => joinSeat(pos)}
+                          onSwap={() => swapSeat(pos)}
                         />
                       )
                     })}
@@ -234,12 +286,6 @@ export default function LobbyPage() {
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14 }}>
             {error && (
               <p style={{ margin: 0, fontSize: 13, color: '#e98e8e', textAlign: 'center' }}>{error}</p>
-            )}
-
-            {isCreator && teamNamesChanged && (
-              <button onClick={saveTeamNames} className="salon-secondary-btn">
-                Enregistrer les noms d'équipes
-              </button>
             )}
 
             {!isFull && (
@@ -266,9 +312,8 @@ export default function LobbyPage() {
             )}
 
             {isInGame && (
-              <button onClick={leaveGame} className="salon-link-btn" style={{ color: '#e98e8e', marginTop: 4 }}>
-                <span className="salon-link-bullet" style={{ background: '#e98e8e' }} />
-                Quitter la partie
+              <button onClick={leaveGame} className="salon-link-btn" style={{ color: 'var(--ink-faint)', marginTop: 4, fontSize: 11, letterSpacing: '0.05em' }}>
+                Quitter la table
               </button>
             )}
           </div>
@@ -279,13 +324,17 @@ export default function LobbyPage() {
 }
 
 function LobbySeat({
-  player, isCurrentUser, canJoin, onJoin,
+  player, isCurrentUser, canJoin, canSwap, onJoin, onSwap,
 }: {
   player: LobbyPlayer | null
   isCurrentUser: boolean
   canJoin: boolean
+  canSwap: boolean
   onJoin: () => void
+  onSwap: () => void
 }) {
+  const [hovered, setHovered] = useState(false)
+
   if (!player) {
     return (
       <div
@@ -303,7 +352,12 @@ function LobbySeat({
   }
 
   return (
-    <div className={`salon-lobby-seat${isCurrentUser ? ' is-me' : ''}`}>
+    <div
+      className={`salon-lobby-seat${isCurrentUser ? ' is-me' : ''}${canSwap ? ' can-join' : ''}`}
+      onClick={canSwap ? onSwap : undefined}
+      onMouseEnter={() => canSwap && setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
       <div className="salon-lobby-avatar" style={{ overflow: 'hidden', padding: player.avatar_url ? 0 : undefined }}>
         {player.avatar_url
           ? <img src={player.avatar_url} alt={player.display_name} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} />
@@ -312,11 +366,15 @@ function LobbySeat({
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: 'var(--ink)', display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {player.display_name}
-          {isCurrentUser && <span style={{ fontSize: 11, color: 'var(--brass)', fontWeight: 500, flexShrink: 0 }}>(moi)</span>}
+          {hovered && canSwap ? <span style={{ color: 'var(--brass-soft)' }}>↔ Échanger</span> : (
+            <>
+              {player.display_name}
+              {isCurrentUser && <span style={{ fontSize: 11, color: 'var(--brass)', fontWeight: 500, flexShrink: 0 }}>(moi)</span>}
+            </>
+          )}
         </p>
-        <p style={{ margin: '2px 0 0', fontSize: 11, color: 'var(--brass)', fontFamily: "'Fraunces', serif", fontWeight: 600 }}>
-          {player.elo} Elo
+        <p style={{ margin: '2px 0 0', fontSize: 11, color: isCurrentUser ? 'var(--brass)' : 'var(--ink-soft)', fontFamily: "'Fraunces', serif", fontWeight: isCurrentUser ? 600 : 400 }}>
+          Elo {player.elo}
         </p>
       </div>
     </div>

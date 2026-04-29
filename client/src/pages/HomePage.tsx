@@ -30,7 +30,11 @@ export default function HomePage() {
   useEffect(() => {
     if (!socket) return
     socket.on('players:online', (p: Player[]) => setOnlinePlayers(p))
-    return () => { socket.off('players:online') }
+    socket.on('games:updated', () => fetchOpenGames())
+    return () => {
+      socket.off('players:online')
+      socket.off('games:updated')
+    }
   }, [socket])
 
   const fetchLeaderboard = async () => {
@@ -58,6 +62,7 @@ export default function HomePage() {
         game_id: game.id, player_id: user.id, team: 1, position: 1,
         elo_before: leaderboard.find((p) => p.id === user.id)?.elo ?? 1000,
       })
+      socket?.emit('games:refresh')
       navigate(`/game/${game.id}`)
     } finally { setLoadingCreate(false) }
   }
@@ -72,7 +77,7 @@ export default function HomePage() {
     if (e1) { console.error('game_players delete:', e1); return }
     const { error: e2 } = await supabase.from('games').delete().eq('id', gameId)
     if (e2) { console.error('games delete:', e2); return }
-    fetchOpenGames()
+    socket?.emit('games:refresh')
   }
 
   return (

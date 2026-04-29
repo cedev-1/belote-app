@@ -29,6 +29,10 @@ function shuffle<T>(arr: T[]): T[] {
   return a
 }
 
+export function shuffleDeck(deck: Card[]): Card[] {
+  return shuffle(deck)
+}
+
 // Distribue 5 cartes par joueur selon l'ordre choisi (3+2 ou 2+3)
 function distribute(deck: Card[], playerIds: string[], dealOrder: DealOrder): Map<string, Card[]> {
   const [first, second] = dealOrder === '3-2' ? [3, 2] : [2, 3]

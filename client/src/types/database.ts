@@ -48,6 +48,8 @@ export interface Database {
           created_by: string
           created_at: string
           finished_at: string | null
+          team1_name: string
+          team2_name: string
         }
         Insert: {
           id?: string
@@ -58,6 +60,8 @@ export interface Database {
           created_by: string
           created_at?: string
           finished_at?: string | null
+          team1_name?: string
+          team2_name?: string
         }
         Update: {
           id?: string
@@ -68,6 +72,8 @@ export interface Database {
           created_by?: string
           created_at?: string
           finished_at?: string | null
+          team1_name?: string
+          team2_name?: string
         }
       }
       game_players: {

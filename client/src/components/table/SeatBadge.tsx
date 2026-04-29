@@ -29,8 +29,13 @@ export function SeatBadge({ name, team, teamName, elo, active = false, highlight
         <span className="salon-seat-name">{name}</span>
         <span className="salon-seat-sub">
           <span className={`salon-team-pip salon-team-${team}`} />
-          {teamName ?? `Éq.${team}`}{elo != null ? ` · ${elo}` : ''}
+          {teamName ?? `Éq.${team}`}
         </span>
+        {elo != null && (
+          <span style={{ fontSize: 12, color: 'var(--brass)', fontFamily: "'Fraunces', serif", fontWeight: 600, letterSpacing: '0.02em' }}>
+            Elo {elo}
+          </span>
+        )}
       </span>
     </div>
   )

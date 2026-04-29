@@ -58,7 +58,7 @@ interface GameData {
 }
 
 interface PhaseState {
-  phase: 'waiting' | 'bidding' | 'playing' | 'cutting'
+  phase: 'waiting' | 'bidding' | 'playing' | 'cutting' | 'dealing'
   currentPlayer: string | null
   trump: Suit | null
   trumpCallerId: string | null
@@ -85,6 +85,72 @@ function reorderArray<T>(arr: T[], from: number, to: number): T[] {
   const [item] = result.splice(from, 1)
   result.splice(to, 0, item)
   return result
+}
+
+// ── Icons ────────────────────────────────────────────────────────────────────
+
+function PassIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={Math.round(size * 1.1)} viewBox="0 0 20 22"
+      fill="currentColor" aria-hidden="true"
+      style={{ display: 'inline-block', flexShrink: 0 }}>
+      <path d="
+        M2,22 L2,5
+        Q2,3 3.5,3 Q5,3 5,5
+        L5,13 Q5,15 5.75,15 Q6.5,15 6.5,13
+        L6.5,2 Q6.5,0.5 8,0.5 Q9.5,0.5 9.5,2
+        L9.5,13 Q9.5,15 10.25,15 Q11,15 11,13
+        L11,3.5 Q11,2 12.5,2 Q14,2 14,3.5
+        L14,13 Q14,15 14.75,15 Q15.5,15 15.5,13
+        L15.5,6 Q15.5,4.5 17,4.5 Q18.5,4.5 18.5,6
+        L18.5,22 Z
+      "/>
+    </svg>
+  )
+}
+
+// ── Cutting panel ────────────────────────────────────────────────────────────
+
+function CuttingPanel({ onCut }: { onCut: (pos: number) => void }) {
+  const [pos, setPos] = useState(16)
+  const top = pos
+  const bottom = 32 - pos
+
+  const Pile = ({ count }: { count: number }) => (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+      <div style={{ position: 'relative', width: 52, height: 100 }}>
+        {[3, 2, 1, 0].map(layer => (
+          <div key={layer} style={{ position: 'absolute', bottom: layer * 3, left: 0 }}>
+            <CardBack size="md" />
+          </div>
+        ))}
+      </div>
+      <span style={{ fontSize: 13, color: 'var(--brass)', fontFamily: 'Fraunces, serif', fontWeight: 600 }}>
+        {count}
+      </span>
+    </div>
+  )
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
+      <p style={{ margin: 0, fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 600 }}>
+        Choisir où couper
+      </p>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 28 }}>
+        <Pile count={top} />
+        <span style={{ fontSize: 20, color: 'var(--brass-soft)', marginBottom: 28, opacity: 0.7 }}>✂</span>
+        <Pile count={bottom} />
+      </div>
+      <input
+        type="range" min={6} max={26} step={1} value={pos}
+        onChange={e => setPos(Number(e.target.value))}
+        style={{ width: 160, accentColor: 'var(--brass)', cursor: 'pointer' }}
+      />
+      <button onClick={() => onCut(pos)} className="salon-primary-btn">
+        Couper
+      </button>
+    </div>
+  )
 }
 
 // ── Bidding panel ────────────────────────────────────────────────────────────
@@ -117,7 +183,7 @@ function BiddingPanel({ isMyTurn, onBid, allPassed, retourne, biddingRound }: {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
         <p style={{ fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--brass-soft)', fontWeight: 600, margin: 0 }}>
-          2ème tour — choisir l'atout
+          2ème tour
         </p>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'nowrap' }}>
           {choices.map(s => (
@@ -132,7 +198,9 @@ function BiddingPanel({ isMyTurn, onBid, allPassed, retourne, biddingRound }: {
             </button>
           ))}
         </div>
-        <button onClick={() => onBid('pass')} className="salon-ghost-btn" style={{ fontSize: 13 }}>
+        <button onClick={() => onBid('pass')} className="salon-ghost-btn"
+          style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+          <PassIcon size={13} />
           Deux
         </button>
       </div>
@@ -155,7 +223,11 @@ function BiddingPanel({ isMyTurn, onBid, allPassed, retourne, biddingRound }: {
       )}
       <div style={{ display: 'flex', gap: 10 }}>
         <button onClick={() => onBid('take')} className="salon-primary-btn">Prendre</button>
-        <button onClick={() => onBid('pass')} className="salon-secondary-btn">Non</button>
+        <button onClick={() => onBid('pass')} className="salon-secondary-btn"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+          <PassIcon />
+          Non
+        </button>
       </div>
     </div>
   )
@@ -207,6 +279,9 @@ export default function GamePage() {
   const [showRefPanel, setShowRefPanel] = useState(() => localStorage.getItem('belote_aide') !== 'off')
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
+  const [myBeloteCount, setMyBeloteCount] = useState<0 | 1 | 2>(0)
+  const [beloteEnabled, setBeloteEnabled] = useState(false)
+  const [beloteFlash, setBeloteFlash] = useState<{ playerId: string; type: 'belote' | 'rebelote' } | null>(null)
   const [teamNames, setTeamNames] = useState<{ 1: string; 2: string }>(
     (location.state as { teamNames?: { 1: string; 2: string } } | null)?.teamNames
     ?? { 1: 'Équipe 1', 2: 'Équipe 2' }
@@ -242,6 +317,8 @@ export default function GamePage() {
           setShowLastTrick(false)
           setTrickState(null)
           setPlayableIndices([])
+          setMyBeloteCount(0)
+          setBeloteEnabled(false)
         } else {
           // Preserve user's card order: keep existing 5 in place, append the 3 new ones
           setMyHand(prev => {
@@ -296,24 +373,37 @@ export default function GamePage() {
       setTimeout(() => setTrickWon(null), 3000)
     })
 
+    socket.on('game:belote_announced', (data: { playerId: string; type: 'belote' | 'rebelote' }) => {
+      if (data.playerId === user?.id) setMyBeloteCount(prev => Math.min(prev + 1, 2) as 0 | 1 | 2)
+      setBeloteFlash(data)
+      setTimeout(() => setBeloteFlash(null), 3000)
+    })
+
     socket.on('game:round_end', (data: {
       team1Points: number; team2Points: number
       roundTeam1Points: number; roundTeam2Points: number
       team1Score: number; team2Score: number
       trumpCallerTeam: 1 | 2 | null; chute: boolean
       litige: boolean; pendingLitigePoints: number
+      beloteTeam: 1 | 2 | null
     }) => {
       setLastTrick(null)
       setLastTrickWinnerId(null)
       setShowLastTrick(false)
-      setTimeout(() => setRoundEnd(data), 3200)
+      setTimeout(() => {
+        setTrickState(null)
+        setRetourne(null)
+        setRoundEnd(data)
+      }, 3200)
     })
 
     socket.on('game:game_over', (data: { winner: 1 | 2; team1Score: number; team2Score: number }) => {
       setTimeout(() => setGameOver(data), 3200)
     })
 
-    socket.on('game:team_names', (names: { 1: string; 2: string }) => setTeamNames(names))
+    socket.on('game:team_names', ({ gameId: gid, names }: { gameId: string; names: { 1: string; 2: string } }) => {
+      if (gid === id) setTeamNames(names)
+    })
 
     // Emit after all listeners are registered
     socket.emit('game:join', id)
@@ -328,6 +418,7 @@ export default function GamePage() {
       socket.off('game:trick_update')
       socket.off('game:playable')
       socket.off('game:trick_won')
+      socket.off('game:belote_announced')
       socket.off('game:round_end')
       socket.off('game:game_over')
       socket.off('game:team_names')
@@ -354,11 +445,6 @@ export default function GamePage() {
     socket?.emit('game:deal', id, dealOrder)
   }
 
-  const cutDeck = () => {
-    const cut = Math.floor(Math.random() * 17) + 8
-    socket?.emit('game:cut_deck', id, cut)
-  }
-
   const bid = (action: 'pass' | 'take', suit?: Suit) => {
     socket?.emit('game:bid', id, action, suit)
   }
@@ -366,7 +452,8 @@ export default function GamePage() {
   const playCard = (cardIndex: number) => {
     if (!playableIndices.includes(cardIndex)) return
     if (trickState?.currentPlayer !== user?.id) return
-    socket?.emit('game:play_card', id, cardIndex)
+    socket?.emit('game:play_card', id, cardIndex, beloteEnabled || undefined)
+    setBeloteEnabled(false)
     setMyHand(prev => prev.filter((_, i) => i !== cardIndex))
     setPlayableIndices([])
     setSelectedCard(null)
@@ -387,6 +474,19 @@ export default function GamePage() {
     return computeHint(playableIndices, myHand, phaseState.trump, trickState?.trick ?? [], partnerIds)
   }, [isMyPlayTurn, showAide, playableIndices, myHand, phaseState.trump, trickState?.trick, partnerIds])
 
+  const beloteButtonLabel = (() => {
+    if (!isMyPlayTurn || selectedCard == null || !phaseState.trump) return null
+    const card = myHand[selectedCard]
+    if (!card || card.suit !== phaseState.trump) return null
+    if (card.value !== 'K' && card.value !== 'Q') return null
+    const trump = phaseState.trump
+    const hasKing = myHand.some(c => c.suit === trump && c.value === 'K')
+    const hasQueen = myHand.some(c => c.suit === trump && c.value === 'Q')
+    if (myBeloteCount === 0 && hasKing && hasQueen) return 'Belote'
+    if (myBeloteCount === 1) return 'Rebelote'
+    return null
+  })()
+
   if (!game) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: '#08160f' }}>
@@ -405,7 +505,6 @@ export default function GamePage() {
     [((myPosition + 2) % 4) + 1]: 'right',
   }
 
-  const isCreator = game.created_by === user?.id
   const isMyBiddingTurn = phaseState.currentPlayer === user?.id
   const isMyTurn = isMyBiddingTurn || isMyPlayTurn
 
@@ -459,8 +558,48 @@ export default function GamePage() {
 
   const tapisEmptyState = (() => {
     if (phaseState.phase === 'cutting') {
+      return isMyCut
+        ? <CuttingPanel onCut={pos => socket?.emit('game:cut_deck', id, pos)} />
+        : (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+            <div style={{ display: 'flex' }}>
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} style={{ transform: `rotate(${(i - 2) * 4}deg)`, marginLeft: i > 0 ? -20 : 0 }}>
+                  <CardBack size="md" />
+                </div>
+              ))}
+            </div>
+            <p style={{ margin: 0, color: 'var(--ink-soft)', fontSize: 13 }}>
+              {cutter?.profiles.display_name ?? '?'} coupe…
+            </p>
+          </div>
+        )
+    }
+
+    if (phaseState.phase === 'dealing') {
+      const isMyDeal = phaseState.currentPlayer === user?.id
+      const dealer = game.game_players.find(p => p.player_id === phaseState.currentPlayer)
+      if (isMyDeal) {
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
+            <span style={{ fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 600 }}>
+              Ordre de distribution
+            </span>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {([['3-2', '3 puis 2'], ['2-3', '2 puis 3']] as [DealOrder, string][]).map(([o, label]) => (
+                <button key={o} onClick={() => setDealOrder(o)}
+                  className={dealOrder === o ? 'salon-primary-btn' : 'salon-secondary-btn'}
+                  style={{ padding: '8px 18px' }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            <button onClick={dealCards} className="salon-primary-btn">Distribuer</button>
+          </div>
+        )
+      }
       return (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
           <div style={{ display: 'flex' }}>
             {Array.from({ length: 5 }).map((_, i) => (
               <div key={i} style={{ transform: `rotate(${(i - 2) * 4}deg)`, marginLeft: i > 0 ? -20 : 0 }}>
@@ -468,13 +607,9 @@ export default function GamePage() {
               </div>
             ))}
           </div>
-          {isMyCut ? (
-            <button onClick={cutDeck} className="salon-primary-btn">Couper le jeu</button>
-          ) : (
-            <p style={{ margin: 0, color: 'var(--ink-soft)', fontSize: 13 }}>
-              {cutter?.profiles.display_name ?? '?'} coupe…
-            </p>
-          )}
+          <p style={{ margin: 0, color: 'var(--ink-soft)', fontSize: 13 }}>
+            {dealer?.profiles.display_name ?? '?'} distribue…
+          </p>
         </div>
       )
     }
@@ -491,32 +626,11 @@ export default function GamePage() {
       )
     }
 
-    if (isCreator && !dealtAlready) {
-      return (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--ink-soft)', fontWeight: 600 }}>
-              Ordre de distribution
-            </span>
-            <div style={{ display: 'flex', gap: 8 }}>
-              {([['3-2', '3 puis 2'], ['2-3', '2 puis 3']] as [DealOrder, string][]).map(([o, label]) => (
-                <button
-                  key={o}
-                  onClick={() => setDealOrder(o)}
-                  className={dealOrder === o ? 'salon-primary-btn' : 'salon-secondary-btn'}
-                  style={{ padding: '8px 18px' }}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <button onClick={dealCards} className="salon-primary-btn">Distribuer</button>
-        </div>
-      )
-    }
-
-    return undefined // default "En attente…" from Tapis
+    return (
+      <span style={{ color: 'rgba(246,241,227,0.55)', fontSize: 13, letterSpacing: '0.04em', textAlign: 'center' }}>
+        En attente…
+      </span>
+    )
   })()
 
   // Tapis trump: only show during playing or after trump is set
@@ -547,14 +661,15 @@ export default function GamePage() {
 
         <div className="salon-title-block">
           <>
+            <span className="salon-title-main">Salon de jeu</span>
             <span className="salon-title-eyebrow">
               {phaseState.phase === 'bidding'
                 ? `Enchères${phaseState.biddingRound === 2 ? ' · 2ème tour' : ''}`
                 : phaseState.phase === 'cutting' ? 'Coupe du jeu'
+                : phaseState.phase === 'dealing' ? 'Distribution'
                 : phaseState.phase === 'playing' ? 'Partie en cours'
-                : 'En attente'}
+                : 'En attente…'}
             </span>
-            <span className="salon-title-main">Salon de jeu</span>
           </>
 
           {(phaseState.team1Score > 0 || phaseState.team2Score > 0 || phaseState.phase === 'playing') && (
@@ -619,21 +734,39 @@ export default function GamePage() {
           </div>
 
           {/* Center: tapis */}
-          <div style={{ position: 'relative' }}>
-            <Tapis
-              trump={tapisTrump}
-              trick={displayTrick}
-              ledSuit={tapisLedSuit}
-              emptyState={tapisEmptyState}
-            />
-            {trickWon && trickWinner && (
-              <div style={{
-                position: 'absolute', bottom: -32, left: 0, right: 0,
-                textAlign: 'center', color: 'var(--brass-soft)',
-                fontFamily: 'Fraunces, serif', fontSize: 14, fontStyle: 'italic',
-              }}>
-                {trickWinner.profiles.display_name} remporte le pli · +{trickWon.points} pts
-              </div>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0 }}>
+            <div style={{ position: 'relative' }}>
+              <Tapis
+                trump={tapisTrump}
+                trick={displayTrick}
+                ledSuit={tapisLedSuit}
+                emptyState={tapisEmptyState}
+              />
+              {trickWon && trickWinner && (
+                <div style={{
+                  position: 'absolute', bottom: -32, left: 0, right: 0,
+                  textAlign: 'center', color: 'var(--brass-soft)',
+                  fontFamily: 'Fraunces, serif', fontSize: 14, fontStyle: 'italic',
+                }}>
+                  {trickWinner.profiles.display_name} a remporté le pli · +{trickWon.points} pts
+                </div>
+              )}
+            </div>
+            {lastTrick && (
+              <button
+                onClick={() => setShowLastTrick(v => !v)}
+                style={{
+                  marginTop: 12, background: 'none', border: 'none', cursor: 'pointer',
+                  fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase',
+                  color: showLastTrick ? 'var(--brass)' : 'var(--ink-soft)',
+                  fontFamily: 'Inter, sans-serif', fontWeight: 600,
+                  opacity: showLastTrick ? 1 : 0.55,
+                  transition: 'color 160ms, opacity 160ms',
+                  padding: '4px 10px',
+                }}
+              >
+                🂠 Voir le dernier pli
+              </button>
             )}
           </div>
 
@@ -668,11 +801,14 @@ export default function GamePage() {
                     : me.profiles.display_name[0]?.toUpperCase()
                   }
                 </span>
-                <span style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.18 }}>
+                <span className="salon-me-meta">
                   <span className="salon-me-name">{me.profiles.display_name}</span>
                   <span className="salon-me-sub">
                     <span className={`salon-team-pip salon-team-${me.team}`} />
                     {teamNames[me.team]}
+                  </span>
+                  <span style={{ fontSize: 13, color: 'var(--brass)', fontFamily: "'Fraunces', serif", fontWeight: 600, letterSpacing: '0.02em' }}>
+                    Elo {me.profiles.elo}
                   </span>
                 </span>
               </div>
@@ -754,23 +890,50 @@ export default function GamePage() {
           {/* Action row */}
           <div className="salon-hand-actions">
             {phaseState.phase === 'playing' && isMyPlayTurn && (
-              <button
-                className="salon-primary-btn"
-                disabled={selectedCard == null}
-                onClick={() => selectedCard != null && playCard(selectedCard)}
-              >
-                {selectedCard != null ? 'Jouer cette carte' : 'Sélectionne une carte'}
-              </button>
-            )}
-            {lastTrick && (
-              <button onClick={() => setShowLastTrick(v => !v)} className="salon-secondary-btn" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontSize: 15, lineHeight: 1 }}>🂠</span>
-                Dernier pli
-              </button>
+              <>
+                {beloteButtonLabel && (
+                  <button
+                    onClick={() => setBeloteEnabled(v => !v)}
+                    className={beloteEnabled ? 'salon-primary-btn' : 'salon-secondary-btn'}
+                    style={{ fontSize: 12, letterSpacing: '0.06em' }}
+                  >
+                    {beloteButtonLabel} {beloteEnabled ? '✓' : ''}
+                  </button>
+                )}
+                <button
+                  className="salon-primary-btn"
+                  disabled={selectedCard == null}
+                  onClick={() => selectedCard != null && playCard(selectedCard)}
+                >
+                  {selectedCard != null ? 'Jouer cette carte' : 'Sélectionne une carte'}
+                </button>
+              </>
             )}
           </div>
         </div>
       </main>
+
+      {/* ── Belote flash ── */}
+      {beloteFlash && (
+        <div style={{
+          position: 'fixed', top: '28%', left: '50%', transform: 'translateX(-50%)',
+          zIndex: 60, pointerEvents: 'none', textAlign: 'center',
+          animation: 'salonBeloteIn 0.35s cubic-bezier(.15,.85,.2,1)',
+        }}>
+          <div style={{
+            background: 'linear-gradient(160deg, rgba(30,18,10,0.97), rgba(10,6,3,0.97))',
+            border: '1px solid var(--brass)', borderRadius: 18,
+            padding: '18px 40px', boxShadow: '0 0 0 1px rgba(201,162,75,0.2), 0 8px 40px rgba(0,0,0,0.6)',
+          }}>
+            <div style={{ fontSize: 26, fontFamily: 'Fraunces, serif', fontStyle: 'italic', color: 'var(--brass)', letterSpacing: '0.02em' }}>
+              {beloteFlash.type === 'belote' ? 'Belote !' : 'Rebelote !'}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 6, letterSpacing: '0.06em' }}>
+              {nameForPlayer(beloteFlash.playerId)}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Aide toggle ── */}
       <label className={`salon-aide-toggle ${showAide ? 'is-active' : ''}`}>
@@ -814,9 +977,9 @@ export default function GamePage() {
               </span>
               {' '}remporte le pli
             </p>
-            <div style={{ display: 'flex', justifyContent: 'center', gap: 20, flexWrap: 'nowrap' }}>
+            <div style={{ display: 'flex', justifyContent: 'center', gap: 28, flexWrap: 'nowrap' }}>
               {lastTrick.map(({ playerId, card }) => (
-                <div key={playerId} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, width: 76 }}>
+                <div key={playerId} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, width: 88 }}>
                   <CardFront card={card} size="md" />
                   <span style={{ fontSize: 11, color: 'var(--ink-soft)', letterSpacing: '0.05em', width: '100%', textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {nameForPlayer(playerId)}
@@ -863,7 +1026,7 @@ export default function GamePage() {
                 const loserTeam = roundEnd.trumpCallerTeam as 1 | 2
                 return (
                   <p style={{ margin: '0 0 16px', fontFamily: 'Fraunces, serif', fontSize: 22, fontWeight: 500, color: '#d97a4f' }}>
-                    {teamNames[loserTeam]} est dedans
+                    {teamNames[loserTeam]} est dedans. Cheh
                   </p>
                 )
               }
