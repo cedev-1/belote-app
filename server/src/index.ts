@@ -1,4 +1,13 @@
 import 'dotenv/config'
+
+// Safety net — log unhandled async errors without crashing the server
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason)
+})
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', err)
+})
+
 import express from 'express'
 import { createServer } from 'http'
 import { Server } from 'socket.io'

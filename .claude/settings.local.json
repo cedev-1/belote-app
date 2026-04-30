@@ -7,7 +7,8 @@
       "Read(//usr/local/bin/**)",
       "Bash(command -v fnm)",
       "Bash(npx tsc *)",
-      "Skill(update-config)"
+      "Skill(update-config)",
+      "Bash(grep -v \"^$\")"
     ]
   }
 }

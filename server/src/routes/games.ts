@@ -61,8 +61,8 @@ gamesRouter.post('/:id/join', async (req: AuthRequest, res) => {
     return
   }
 
-  const team: 1 | 2 = playerCount < 2 ? 1 : 2
   const position = (playerCount + 1) as 1 | 2 | 3 | 4
+  const team: 1 | 2 = ([1, 3] as number[]).includes(position) ? 1 : 2
 
   await supabase.from('game_players').insert({
     game_id: id,

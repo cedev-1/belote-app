@@ -876,22 +876,25 @@ export default function GamePage() {
                 </div>
               )}
             </div>
-            {lastTrick && (
-              <button
-                onClick={() => setShowLastTrick(v => !v)}
-                style={{
-                  marginTop: 12, background: 'none', border: 'none', cursor: 'pointer',
-                  fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase',
-                  color: showLastTrick ? 'var(--brass)' : 'var(--ink-soft)',
-                  fontFamily: 'Inter, sans-serif', fontWeight: 600,
-                  opacity: showLastTrick ? 1 : 0.55,
-                  transition: 'color 160ms, opacity 160ms',
-                  padding: '4px 10px',
-                }}
-              >
-                🂠 Voir le dernier pli
-              </button>
-            )}
+            {/* Always rendered — fixed height avoids layout shift after first trick */}
+            <div style={{ minHeight: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 8 }}>
+              {lastTrick && (
+                <button
+                  onClick={() => setShowLastTrick(v => !v)}
+                  style={{
+                    background: 'none', border: 'none', cursor: 'pointer',
+                    fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase',
+                    color: showLastTrick ? 'var(--brass)' : 'var(--ink-soft)',
+                    fontFamily: 'Inter, sans-serif', fontWeight: 600,
+                    opacity: showLastTrick ? 1 : 0.55,
+                    transition: 'color 160ms, opacity 160ms',
+                    padding: '4px 10px',
+                  }}
+                >
+                  🂠 Voir le dernier pli
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Right opponent */}

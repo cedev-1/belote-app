@@ -672,6 +672,8 @@ export function registerSocketHandlers(io: Server) {
             state.trumpCallerId = null
             state.retourne = null
             updateEloAndFinishGame(io, state, gameId, winner)
+            gameStates.delete(gameId)
+            gameTeamNames.delete(gameId)
             return
           }
 

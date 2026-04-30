@@ -10,18 +10,24 @@ export function useSocket() {
   const [socket, setSocket] = useState<Socket | null>(null)
 
   useEffect(() => {
-    let s: Socket
+    let cancelled = false
+    let s: Socket | undefined
 
     supabase.auth.getSession().then(({ data: { session } }) => {
+      if (cancelled) return
       s = io(SERVER_URL as string, {
         auth: { token: session?.access_token },
       })
       socketRef.current = s
       setSocket(s)
+    }).catch(err => {
+      console.error('[useSocket] getSession failed:', err)
     })
 
     return () => {
+      cancelled = true
       s?.disconnect()
+      socketRef.current = null
       setSocket(null)
     }
   }, [])

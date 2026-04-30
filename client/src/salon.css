@@ -700,12 +700,13 @@
   .salon-title-eyebrow { font-size: 10px; letter-spacing: 0.14em; }
   .salon-inline-score { font-size: 16px; gap: 6px; margin-top: 2px; }
 
-  /* Seat badges: compact — avatar + name + team, no ELO, no turn label */
-  .salon-seat-badge { width: 110px; padding: 6px 8px 6px 6px; min-width: 0; gap: 6px; border-radius: 10px; }
+  /* Seat badges: compact — avatar + name + team, no ELO, no turn label, no photo */
+  .salon-seat-badge { width: 100px; padding: 5px 7px 5px 5px; min-width: 0; gap: 5px; border-radius: 10px; }
   .salon-seat-elo { display: none; }
-  .salon-seat-turn-label { display: none; }
-  .salon-seat-avatar { width: 28px !important; height: 28px !important; font-size: 12px !important; }
-  .salon-seat-name { font-size: 11px; }
+  .salon-seat-turn-label { display: none !important; }
+  .salon-seat-photo { display: none; }
+  .salon-seat-avatar { width: 26px !important; height: 26px !important; font-size: 11px !important; }
+  .salon-seat-name { font-size: 10px; }
   .salon-seat-sub { font-size: 9px; }
 
   /* Middle row: tighter columns, left/right stacked vertically */
