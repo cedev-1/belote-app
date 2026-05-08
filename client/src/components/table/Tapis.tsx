@@ -44,7 +44,7 @@ export function Tapis({ trump, trumpCallerName, trick, ledSuit, emptyState, comp
               transition: 'bottom 0.25s ease',
             }}
           >
-            <CardFront card={card} size="sm" />
+            <CardFront card={card} width={32} />
           </div>
         )
       })}
@@ -61,7 +61,7 @@ export function Tapis({ trump, trumpCallerName, trick, ledSuit, emptyState, comp
             transform: isMaster ? 'translateY(-8px)' : 'none',
             transition: 'transform 0.25s ease',
           }}>
-            <CardFront card={card} size="md" />
+            <CardFront card={card} />
           </div>
           {playerName && (
             <span className="salon-trick-label" style={isMaster ? { color: 'var(--brass-soft)', fontWeight: 700 } : undefined}>
@@ -76,7 +76,7 @@ export function Tapis({ trump, trumpCallerName, trick, ledSuit, emptyState, comp
   return (
     <div className="salon-tapis">
       {/* Trump badge — always rendered to keep tapis height stable; hidden if no trump */}
-      <div style={{ visibility: trump ? 'visible' : 'hidden', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+      <div style={{ visibility: trump ? 'visible' : 'hidden', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
         <div className="salon-tapis-trump">
           <span className="salon-trump-eyebrow">Atout</span>
           <span className="salon-trump-glyph" style={{ color: trump ? suitColor(trump) : 'transparent' }}>
@@ -84,30 +84,26 @@ export function Tapis({ trump, trumpCallerName, trick, ledSuit, emptyState, comp
           </span>
           <span className="salon-trump-name">{trump ? SUIT_LABEL[trump] : ' '}</span>
         </div>
+        {/* Led suit right below trump pill */}
+        <span style={{
+          fontSize: 11, fontFamily: 'Fraunces, serif', fontStyle: 'italic',
+          color: 'rgba(246,241,227,0.72)', letterSpacing: '0.05em',
+          visibility: (!compact && ledSuit) ? 'visible' : 'hidden',
+          display: 'block', minHeight: '1em',
+        }}>
+          {ledSuit ? `${SUIT_GLYPH[ledSuit]} ${SUIT_LABEL[ledSuit]} demandé` : ' '}
+        </span>
         <span style={{
           fontSize: 11, color: 'var(--ink-soft)', fontFamily: "'Fraunces', serif",
           fontStyle: 'italic', letterSpacing: '0.04em',
           visibility: trumpCallerName ? 'visible' : 'hidden',
           display: 'block', minHeight: '1em',
         }}>
-          {trumpCallerName ?? ' '} a pris
+          {trumpCallerName ?? ' '} a pris
         </span>
       </div>
 
-      {trick.length > 0 ? (
-        <>
-          {trickDisplay}
-          {/* Led suit — always rendered to keep height stable */}
-          <span style={{
-            fontSize: 11, fontFamily: 'Fraunces, serif', fontStyle: 'italic',
-            color: 'rgba(246,241,227,0.72)', letterSpacing: '0.06em',
-            visibility: (!compact && ledSuit) ? 'visible' : 'hidden',
-            display: 'block', minHeight: '1em',
-          }}>
-            {ledSuit ? `${SUIT_GLYPH[ledSuit]} ${SUIT_LABEL[ledSuit]} demandé` : ' '}
-          </span>
-        </>
-      ) : (
+      {trick.length > 0 ? trickDisplay : (
         <div style={{ minHeight: compact ? 84 : 132, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           {emptyState ?? <span style={{ color: 'rgba(246,241,227,0.45)', fontSize: 13 }}>En attente…</span>}
         </div>

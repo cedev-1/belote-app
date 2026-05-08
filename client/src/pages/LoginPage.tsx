@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useAuth } from '../hooks/useAuth'
+import { Logo } from '../components/Logo'
 
 export default function LoginPage() {
   const { signIn, signUp } = useAuth()
@@ -12,99 +13,115 @@ export default function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setError(null)
-    setLoading(true)
+    setError(null); setLoading(true)
     try {
-      if (mode === 'login') {
-        await signIn(email, password)
-      } else {
-        await signUp(email, password, username)
-      }
+      if (mode === 'login') await signIn(email, password)
+      else                  await signUp(email, password, username)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Une erreur est survenue')
-    } finally {
-      setLoading(false)
-    }
+    } finally { setLoading(false) }
   }
 
   return (
-    <div className="flex items-center justify-center min-h-screen p-4">
-      <div className="w-full max-w-md">
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold mb-2">🃏 Belote App</h1>
-          <p className="text-green-300">Le jeu de belote de l'équipe</p>
+    <div className="salon-root salon-login-root">
+      {/* Decorative background cards */}
+      <div className="salon-login-deco" aria-hidden="true">
+        <div className="salon-deco-card salon-deco-card--1">
+          <span style={{ color: '#b1242b' }}>♥</span>
+        </div>
+        <div className="salon-deco-card salon-deco-card--2">
+          <span>♠</span>
+        </div>
+        <div className="salon-deco-card salon-deco-card--3">
+          <span style={{ color: '#b1242b' }}>♦</span>
+        </div>
+        <div className="salon-deco-card salon-deco-card--4">
+          <span>♣</span>
+        </div>
+      </div>
+
+      <div className="salon-login-wrap">
+        <div className="salon-login-brand">
+          <Logo size={56} />
+          <h1 className="salon-login-title">
+            <span className="salon-login-title-1">Tapons</span>
+            <span className="salon-login-title-2">l'carton</span>
+          </h1>
+          <p className="salon-login-tagline">Capot, belote et facturation.</p>
         </div>
 
-        <div className="bg-felt rounded-2xl p-8 shadow-2xl border border-green-700">
-          <div className="flex mb-6 rounded-lg overflow-hidden border border-green-700">
+        <div className="salon-card-panel salon-login-card">
+          <div className="salon-tabbar">
             <button
+              type="button"
               onClick={() => setMode('login')}
-              className={`flex-1 py-2 text-sm font-medium transition-colors ${
-                mode === 'login' ? 'bg-green-700 text-white' : 'text-green-300 hover:bg-felt-light'
-              }`}
+              className={`salon-tab ${mode === 'login' ? 'is-active' : ''}`}
             >
               Connexion
             </button>
             <button
+              type="button"
               onClick={() => setMode('register')}
-              className={`flex-1 py-2 text-sm font-medium transition-colors ${
-                mode === 'register' ? 'bg-green-700 text-white' : 'text-green-300 hover:bg-felt-light'
-              }`}
+              className={`salon-tab ${mode === 'register' ? 'is-active' : ''}`}
             >
               Inscription
             </button>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="salon-form">
             {mode === 'register' && (
-              <div>
-                <label className="block text-sm text-green-300 mb-1">Pseudo</label>
+              <div className="salon-field">
+                <label className="salon-field-label" htmlFor="login-username">Pseudo</label>
                 <input
+                  id="login-username"
                   type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   required
-                  className="w-full bg-felt-dark border border-green-700 rounded-lg px-4 py-2 text-white placeholder-green-600 focus:outline-none focus:border-green-400"
+                  className="salon-input"
                   placeholder="votre_pseudo"
+                  autoComplete="username"
                 />
               </div>
             )}
-            <div>
-              <label className="block text-sm text-green-300 mb-1">Email</label>
+            <div className="salon-field">
+              <label className="salon-field-label" htmlFor="login-email">Email</label>
               <input
+                id="login-email"
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-                className="w-full bg-felt-dark border border-green-700 rounded-lg px-4 py-2 text-white placeholder-green-600 focus:outline-none focus:border-green-400"
+                className="salon-input"
                 placeholder="vous@sellsy.com"
+                autoComplete="email"
               />
             </div>
-            <div>
-              <label className="block text-sm text-green-300 mb-1">Mot de passe</label>
+            <div className="salon-field">
+              <label className="salon-field-label" htmlFor="login-password">Mot de passe</label>
               <input
+                id="login-password"
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                className="w-full bg-felt-dark border border-green-700 rounded-lg px-4 py-2 text-white placeholder-green-600 focus:outline-none focus:border-green-400"
+                className="salon-input"
                 placeholder="••••••••"
+                autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
               />
             </div>
 
-            {error && (
-              <p className="text-red-400 text-sm bg-red-900/20 rounded-lg px-3 py-2">{error}</p>
-            )}
+            {error && <p className="salon-form-error">{error}</p>}
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white font-semibold py-3 rounded-lg transition-colors"
-            >
-              {loading ? 'Chargement...' : mode === 'login' ? 'Se connecter' : "S'inscrire"}
+            <button type="submit" disabled={loading} className="salon-primary-btn salon-form-submit">
+              {loading ? 'Chargement…' : mode === 'login' ? 'Se connecter' : "Créer mon compte"}
             </button>
           </form>
         </div>
+
+        <p className="salon-login-foot">
+          Réservé aux compagnons de bureau · v1
+        </p>
       </div>
     </div>
   )

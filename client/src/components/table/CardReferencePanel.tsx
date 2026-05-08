@@ -10,18 +10,21 @@ const NON_TRUMP_ORDER: Array<[string, number]> = [
   ['J', 2],  ['9', 0],  ['8', 0], ['7', 0],
 ]
 
-export function CardReferencePanel({ trump, onClose }: { trump: Suit | null; onClose: () => void }) {
+interface CardReferencePanelProps {
+  trump: Suit | null
+  onClose: () => void
+}
+export function CardReferencePanel({ trump, onClose }: CardReferencePanelProps) {
   return (
-    <div className="salon-ref-panel">
+    <div className="salon-ref-panel" role="dialog" aria-label="Valeur des cartes">
       <div className="salon-ref-head">
         <span>Valeur des cartes</span>
         <button className="salon-ref-close" onClick={onClose} aria-label="Fermer">×</button>
       </div>
       <div className="salon-ref-body">
         <div>
-          <div className="salon-ref-col-title" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
-            {trump && <span style={{ color: suitColor(trump), fontSize: 18, lineHeight: 1 }}>{SUIT_GLYPH[trump]}</span>}
-            <span>Atout</span>
+          <div className="salon-ref-col-title" style={{ color: trump ? suitColor(trump) : undefined }}>
+            {trump ? `${SUIT_GLYPH[trump]} Atout` : 'Atout'}
           </div>
           {TRUMP_ORDER.map(([v, p]) => (
             <div key={v} className="salon-ref-row">
@@ -32,9 +35,7 @@ export function CardReferencePanel({ trump, onClose }: { trump: Suit | null; onC
         </div>
         <div className="salon-ref-divider" />
         <div>
-          <div className="salon-ref-col-title" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <span>Hors atout</span>
-          </div>
+          <div className="salon-ref-col-title">Hors atout</div>
           {NON_TRUMP_ORDER.map(([v, p]) => (
             <div key={v} className="salon-ref-row">
               <span className="salon-ref-val">{v}</span>

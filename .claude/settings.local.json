@@ -8,7 +8,19 @@
       "Bash(command -v fnm)",
       "Bash(npx tsc *)",
       "Skill(update-config)",
-      "Bash(grep -v \"^$\")"
+      "Bash(grep -v \"^$\")",
+      "Bash(rtk git *)",
+      "Bash(rtk grep *)",
+      "Bash(rtk tsc *)",
+      "Bash(rtk diff *)",
+      "Bash(rtk wc *)",
+      "Bash(rtk ls *)",
+      "Bash(rtk find *)",
+      "Bash(rtk read *)",
+      "Bash(rtk npx *)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(rtk curl *)",
+      "Bash(rtk npm *)"
     ]
   }
 }

@@ -3,37 +3,10 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { supabase } from '../lib/supabase'
 import { useSocket } from '../hooks/useSocket'
+import { AppHeader } from '../components/AppHeader'
 import type { Player } from '../types'
 
 const ELO_MEDALS = ['I', 'II', 'III']
-
-function IconHistory() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0 }}>
-      <circle cx="8" cy="8" r="6.2" />
-      <path d="M8 4.5V8.5L10.5 10.5" />
-    </svg>
-  )
-}
-
-function IconProfile() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true" style={{ flexShrink: 0 }}>
-      <circle cx="8" cy="5.5" r="2.8" />
-      <path d="M2.5 14.5c0-3 2.5-5.2 5.5-5.2s5.5 2.2 5.5 5.2" />
-    </svg>
-  )
-}
-
-function IconLogout() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0 }}>
-      <path d="M6 2.5H3.5A1 1 0 0 0 2.5 3.5v9a1 1 0 0 0 1 1H6" />
-      <path d="M10.5 11L13.5 8 10.5 5" />
-      <path d="M13.5 8H6.5" />
-    </svg>
-  )
-}
 
 function IconCrown() {
   return (
@@ -44,8 +17,17 @@ function IconCrown() {
   )
 }
 
+function IconUsers() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
+      <circle cx="8" cy="6" r="2.6"/>
+      <path d="M3 14c0-2.5 2.2-4.5 5-4.5s5 2 5 4.5"/>
+    </svg>
+  )
+}
+
 export default function HomePage() {
-  const { user, signOut } = useAuth()
+  const { user } = useAuth()
   const { socket } = useSocket()
   const navigate = useNavigate()
 
@@ -81,8 +63,9 @@ export default function HomePage() {
 
   const fetchOpenGames = async () => {
     const { data } = await supabase
-      .from('games').select('*, game_players(player_id, team, position, profiles(id, display_name, elo, avatar_url))')
-      .eq('status', 'waiting').order('created_at', { ascending: false })
+      .from('games')
+      .select('id, status, created_by, created_at, game_players(player_id, team, position, profiles(id, display_name, elo, avatar_url))')
+      .in('status', ['waiting', 'in_progress']).order('created_at', { ascending: false })
     if (data) setOpenGames(data)
   }
 
@@ -104,136 +87,96 @@ export default function HomePage() {
     } finally { setLoadingCreate(false) }
   }
 
-  const joinGame = async (game: any) => {
-    if (!user) return
-    navigate(`/game/${game.id}`)
+  const joinGame = (game: any) => {
+    // In-progress games go directly to the play page; waiting games go via the lobby
+    navigate(game.status === 'in_progress' ? `/game/${game.id}/play` : `/game/${game.id}`)
   }
 
-  const deleteGame = async (gameId: string) => {
-    const { error: e1 } = await supabase.from('game_players').delete().eq('game_id', gameId)
-    if (e1) { console.error('game_players delete:', e1); return }
-    const { error: e2 } = await supabase.from('games').delete().eq('id', gameId)
-    if (e2) { console.error('games delete:', e2); return }
-    socket?.emit('games:refresh')
+  const deleteGame = (gameId: string) => {
+    socket?.emit('game:delete', gameId)
   }
 
   return (
-    <div className="salon-root" style={{ minHeight: '100vh' }}>
-      <div className="salon-ornament tl" /><div className="salon-ornament tr" />
-      <div className="salon-ornament bl" /><div className="salon-ornament br" />
+    <div className="salon-root">
+      <AppHeader />
 
-      <header className="salon-topbar">
-        <span className="salon-title-main" style={{ color: 'var(--brass-soft)', justifySelf: 'start' }}>
-          Salon principal
-        </span>
-        <div />
-        <div style={{ justifySelf: 'end', display: 'flex', gap: 10, alignItems: 'center' }}>
-          <button
-            onClick={() => {
-              const url = window.location.href
-              window.open(url, 'belote_window', 'width=1024,height=768,resizable=yes,menubar=no,toolbar=no,location=no,status=no')
-            }}
-            className="salon-ghost-btn"
-            title="Ouvrir dans une fenêtre dédiée"
-            style={{ fontSize: 16, padding: '8px 12px' }}
-          >
-            ⊡
-          </button>
-          <button onClick={() => navigate('/history')} className="salon-ghost-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <IconHistory />Historique
-          </button>
-          <button onClick={() => navigate('/profile')} className="salon-ghost-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <IconProfile />Mon profil
-          </button>
-          <button onClick={() => signOut()} className="salon-ghost-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <IconLogout />Déconnexion
-          </button>
-        </div>
-      </header>
+      <main className="salon-page-main salon-home-main">
+        <div className="salon-home-grid">
+          {/* ── HERO: poker-style table with open games centered ── */}
+          <section className="salon-hero-table">
+            <div className="salon-hero-eyebrow">À la table</div>
+            <h1 className="salon-hero-title">
+              {openGames.length === 0 ? "Personne n'a encore distribué" : `${openGames.length} table${openGames.length > 1 ? 's' : ''} en attente`}
+            </h1>
+            <p className="salon-hero-sub">
+              {openGames.length === 0
+                ? "Lance la première partie — trois collègues attendent ton signal."
+                : "Choisis ta partie ou ouvre la tienne."}
+            </p>
 
-      <main className="salon-home-main">
-        {/* LEFT column */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-          {/* Hero CTA */}
-          <section className="salon-card-panel salon-hero">
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 24, flexWrap: 'wrap' }}>
-              <div>
-                <span className="salon-title-eyebrow">Nouvelle table</span>
-                <h2 style={{ margin: '4px 0 6px', fontFamily: "'Fraunces', serif", fontSize: 26, fontWeight: 500, color: 'var(--ink)' }}>
-                  Prêt pour une partie&nbsp;?
-                </h2>
-                <p style={{ margin: 0, color: 'var(--ink-soft)', fontSize: 13 }}>
-                  Crée une table, invite trois collègues, distribue.
-                </p>
-              </div>
-              <button onClick={createGame} disabled={loadingCreate} className="salon-primary-btn">
-                {loadingCreate ? 'Création…' : '+ Créer une partie'}
+            <div className="salon-hero-actions">
+              <button onClick={createGame} disabled={loadingCreate} className="salon-primary-btn salon-primary-btn--lg">
+                {loadingCreate ? 'Création…' : 'Nouvelle partie'}
               </button>
             </div>
-          </section>
 
-          {/* Open tables */}
-          <section className="salon-card-panel">
-            <div className="salon-panel-head">
-              <h2 className="salon-panel-title">Parties en attente</h2>
-              <span className="salon-panel-meta">{openGames.length} table{openGames.length > 1 ? 's' : ''}</span>
-            </div>
-            {openGames.length === 0 ? (
-              <p style={{ textAlign: 'center', color: 'var(--ink-faint)', fontSize: 13, padding: '36px 0', margin: 0 }}>
-                Aucune partie ouverte — sois le premier à dresser une table.
-              </p>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {openGames.length > 0 && (
+              <div className="salon-tables-list">
                 {openGames.map((game: any) => {
                   const playerCount = game.game_players?.length ?? 0
                   const isInGame = game.game_players?.some((gp: any) => gp.player_id === user?.id)
                   const isFull = playerCount >= 4
                   const isOwner = game.created_by === user?.id
+                  const isInProgress = game.status === 'in_progress'
+                  const ownerName = game.game_players?.find((gp: any) => gp.player_id === game.created_by)?.profiles?.display_name
+                                  ?? game.game_players?.[0]?.profiles?.display_name
+                                  ?? 'Joueur'
+                  // Hide games in progress if the user isn't a participant
+                  if (isInProgress && !isInGame) return null
                   return (
-                    <div key={game.id} className="salon-game-row">
-                      <div className="salon-game-seats">
+                    <div key={game.id} className="salon-table-row">
+                      <div className="salon-table-seats">
                         {Array.from({ length: 4 }).map((_, i) => {
-                          const filled = i < playerCount
                           const player = game.game_players?.[i]
+                          const filled = !!player
                           const avatarUrl = player?.profiles?.avatar_url
                           return (
                             <div key={i} className={`salon-seat-chip ${filled ? 'is-filled' : ''}`}
-                              title={player?.profiles?.display_name ?? 'Place libre'}
-                              style={{ overflow: 'hidden', padding: avatarUrl ? 0 : undefined }}>
+                              title={player?.profiles?.display_name ?? 'Place libre'}>
                               {filled
                                 ? avatarUrl
-                                  ? <img src={avatarUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                                  : (player?.profiles?.display_name?.[0]?.toUpperCase() ?? '?')
-                                : ''}
+                                  ? <img src={avatarUrl} alt="" />
+                                  : <span>{player.profiles?.display_name?.[0]?.toUpperCase() ?? '?'}</span>
+                                : null}
                             </div>
                           )
                         })}
                       </div>
-                      <div style={{ flex: 1 }}>
-                        <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>
-                          Table de {game.game_players?.[0]?.profiles?.display_name ?? 'joueur'}
-                        </p>
-                        <p style={{ margin: '2px 0 0', fontSize: 11, color: 'var(--ink-soft)' }}>
-                          {playerCount}/4 joueurs · {new Date(game.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                      <div className="salon-table-meta">
+                        <p className="salon-table-name">Table de {ownerName}</p>
+                        <p className="salon-table-info">
+                          {isInProgress ? 'En cours' : `${playerCount}/4 joueurs`} · {new Date(game.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
                         </p>
                       </div>
-                      <button
-                        onClick={() => joinGame(game)}
-                        disabled={isFull && !isInGame}
-                        className={isInGame || isFull ? 'salon-secondary-btn' : 'salon-primary-btn'}
-                      >
-                        {isInGame ? 'Rejoindre' : isFull ? 'Complète' : 'Rejoindre'}
-                      </button>
-                      {isOwner && (
+                      <div className="salon-table-actions">
                         <button
-                          onClick={() => deleteGame(game.id)}
-                          className="salon-ghost-btn"
-                          title="Supprimer cette partie"
-                          style={{ padding: '8px 10px', color: '#e98e8e', borderColor: 'rgba(233,142,142,0.25)' }}
+                          onClick={() => joinGame(game)}
+                          disabled={!isInProgress && isFull && !isInGame}
+                          className={isInGame || isFull ? 'salon-secondary-btn' : 'salon-primary-btn'}
                         >
-                          ✕
+                          {isInGame ? 'Reprendre' : isFull ? 'Complète' : 'Rejoindre'}
                         </button>
-                      )}
+                        {isOwner && !isInProgress && (
+                          <button
+                            onClick={() => deleteGame(game.id)}
+                            className="salon-icon-btn salon-icon-btn--danger"
+                            title="Supprimer cette partie"
+                            aria-label="Supprimer"
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
                     </div>
                   )
                 })}
@@ -241,64 +184,70 @@ export default function HomePage() {
             )}
           </section>
 
-          {/* Online players */}
-          <section className="salon-card-panel">
-            <div className="salon-panel-head">
-              <h2 className="salon-panel-title">Au comptoir</h2>
-              <span className="salon-panel-meta">{onlinePlayers.length} en ligne</span>
-            </div>
-            {onlinePlayers.length === 0 ? (
-              <p style={{ color: 'var(--ink-faint)', fontSize: 13, margin: 0 }}>
-                Personne pour l'instant. Le bar reste ouvert.
-              </p>
-            ) : (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                {onlinePlayers.map((p) => (
-                  <div key={p.id} className="salon-online-chip">
-                    {p.avatar_url
-                      ? <img src={p.avatar_url} alt="" style={{ width: 20, height: 20, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
-                      : <span className="salon-online-dot" />
-                    }
-                    <span>{p.display_name}</span>
-                  </div>
-                ))}
+          {/* ── SIDEBAR ── */}
+          <aside className="salon-home-sidebar">
+            {/* Online players */}
+            <section className="salon-card-panel">
+              <div className="salon-panel-head">
+                <h2 className="salon-panel-title">
+                  <IconUsers />
+                  <span>En ligne</span>
+                </h2>
+                <span className="salon-panel-meta">{onlinePlayers.length}</span>
               </div>
-            )}
-          </section>
-        </div>
-
-        {/* RIGHT column — Leaderboard */}
-        <aside className="salon-card-panel" style={{ alignSelf: 'start' }}>
-          <div className="salon-panel-head">
-            <h2 className="salon-panel-title">Classement Elo</h2>
-            <span className="salon-panel-meta">Top 10</span>
-          </div>
-          {leaderboard.length === 0 ? (
-            <p style={{ color: 'var(--ink-faint)', fontSize: 13, margin: 0 }}>Aucun joueur encore.</p>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              {leaderboard.map((p, i) => (
-                <div key={p.id} className={`salon-leader-row ${p.id === user?.id ? 'is-me' : ''}`}>
-                  <span className={`salon-leader-rank ${i < 3 ? `salon-medal-${i + 1}` : ''}`}>
-                    {i < 3 ? ELO_MEDALS[i] : `${i + 1}`}
-                  </span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {p.display_name}
-                    </p>
-                    <p style={{ margin: '2px 0 0', fontSize: 11, color: 'var(--ink-soft)' }}>
-                      {p.games_played} partie{p.games_played !== 1 ? 's' : ''} · {p.games_won ?? 0} gagnée{(p.games_won ?? 0) > 1 ? 's' : ''}
-                    </p>
-                  </div>
-                  <span className="salon-leader-elo" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                    {i === 0 && <IconCrown />}
-                    {p.elo}
-                  </span>
+              {onlinePlayers.length === 0 ? (
+                <p className="salon-panel-empty">Personne pour l'instant.</p>
+              ) : (
+                <div className="salon-online-grid">
+                  {onlinePlayers.map((p) => (
+                    <div key={p.id} className="salon-online-chip">
+                      {p.avatar_url
+                        ? <img src={p.avatar_url} alt="" />
+                        : <span className="salon-online-dot" />
+                      }
+                      <span>{p.display_name}</span>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          )}
-        </aside>
+              )}
+            </section>
+
+            {/* Leaderboard */}
+            <section className="salon-card-panel">
+              <div className="salon-panel-head">
+                <h2 className="salon-panel-title">Classement</h2>
+                <span className="salon-panel-meta">Top 10</span>
+              </div>
+              {leaderboard.length === 0 ? (
+                <p className="salon-panel-empty">Aucun joueur classé.</p>
+              ) : (
+                <div className="salon-leader-list">
+                  {leaderboard.map((p, i) => (
+                    <button
+                      key={p.id}
+                      onClick={() => p.id === user?.id ? navigate('/profile') : navigate(`/profile/${p.id}`)}
+                      className={`salon-leader-row ${p.id === user?.id ? 'is-me' : ''}`}
+                    >
+                      <span className={`salon-leader-rank ${i < 3 ? `salon-medal-${i + 1}` : ''}`}>
+                        {i < 3 ? ELO_MEDALS[i] : i + 1}
+                      </span>
+                      <div className="salon-leader-meta">
+                        <p className="salon-leader-name">{p.display_name}</p>
+                        <p className="salon-leader-info">
+                          {p.games_played} partie{p.games_played !== 1 ? 's' : ''} · {p.games_won ?? 0}V
+                        </p>
+                      </div>
+                      <span className="salon-leader-elo">
+                        {i === 0 && <IconCrown />}
+                        {p.elo}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </section>
+          </aside>
+        </div>
       </main>
     </div>
   )

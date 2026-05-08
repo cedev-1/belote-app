@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { io, Socket } from 'socket.io-client'
 import { supabase } from '../lib/supabase'
 
-// En prod, VITE_SERVER_URL pointe vers Railway. En dev, on passe par le proxy Vite (même origine).
-const SERVER_URL = import.meta.env.VITE_SERVER_URL || undefined
+// En prod, VITE_SERVER_URL pointe vers Railway. En dev, undefined = même origine → proxy Vite.
+const SERVER_URL = import.meta.env.PROD ? import.meta.env.VITE_SERVER_URL : undefined
 
 export function useSocket() {
   const socketRef = useRef<Socket | null>(null)
